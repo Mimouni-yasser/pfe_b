@@ -1,0 +1,29 @@
+//TODO: fix ADC bug
+//TODO: add uart sensor
+
+
+
+
+// if(!device_is_ready(uart1)) printk("uart1: device not ready.\n");
+        // err = uart_callback_set(uart1, uart_cb, NULL);
+        // if (err) {
+        //         printk("error setting callback: %d\n", err);
+        //         return err;
+        // }
+
+
+	// if (err <0) {
+        //         printk("uart init failed, err = %d\n", err);
+	// 	return -1;
+	// }
+
+        
+        // uart_rx_enable(uart1, rx_buf, sizeof(rx_buf), 100);
+
+        // printk("transmitting");
+        // err = uart_tx(uart1, message, sizeof(message), SYS_FOREVER_US);
+	// if (err) {
+	// 	return err;
+	// }
+
+        // printk("transmitted");

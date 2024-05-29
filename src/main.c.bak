@@ -1,0 +1,419 @@
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/adc.h>
+#include <zephyr/drivers/uart.h>
+#include "includes/i2c_sensors.h"
+#include "includes/utils.h"
+#include <zephyr/drivers/flash.h>
+#include <zephyr/storage/flash_map.h>
+#include <zephyr/fs/nvs.h>
+#include "includes/flash_utils.h"
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/hci.h>
+#include <zephyr/bluetooth/conn.h>
+#include <zephyr/bluetooth/gatt.h>
+#include <zephyr/bluetooth/uuid.h>
+#include <cJSON.h>
+
+
+#define CONFIG_SETTINGS 1
+
+
+#define GATT_PERM_READ_MASK     (BT_GATT_PERM_READ | \
+				 BT_GATT_PERM_READ_ENCRYPT | \
+				 BT_GATT_PERM_READ_AUTHEN)
+#define GATT_PERM_WRITE_MASK    (BT_GATT_PERM_WRITE | \
+				 BT_GATT_PERM_WRITE_ENCRYPT | \
+				 BT_GATT_PERM_WRITE_AUTHEN)
+
+#ifndef CONFIG_BT_HRS_DEFAULT_PERM_RW_AUTHEN
+#define CONFIG_BT_HRS_DEFAULT_PERM_RW_AUTHEN 0
+#endif
+#ifndef CONFIG_BT_HRS_DEFAULT_PERM_RW_ENCRYPT
+#define CONFIG_BT_HRS_DEFAULT_PERM_RW_ENCRYPT 0
+#endif
+#ifndef CONFIG_BT_HRS_DEFAULT_PERM_RW
+#define CONFIG_BT_HRS_DEFAULT_PERM_RW 0
+#endif
+
+#define HRS_GATT_PERM_DEFAULT (						\
+	CONFIG_BT_HRS_DEFAULT_PERM_RW_AUTHEN ?				\
+	(BT_GATT_PERM_READ_AUTHEN | BT_GATT_PERM_WRITE_AUTHEN) :	\
+	CONFIG_BT_HRS_DEFAULT_PERM_RW_ENCRYPT ?				\
+	(BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT) :	\
+	(BT_GATT_PERM_READ | BT_GATT_PERM_WRITE))			\
+
+
+#define BT_UUID \
+	BT_UUID_DECLARE_16(0x80)
+
+#define BT_UUID_MEASUREMENT \
+	BT_UUID_DECLARE_16(0x81)
+
+#define BT_UUID_TIMESTAMP \
+	BT_UUID_DECLARE_16(0x82)
+	
+struct bt_uuid_128 uuid = BT_UUID_INIT_128(0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0);
+
+
+static uint8_t hrs_blsc;
+
+static void hrmc_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
+{
+	ARG_UNUSED(attr);
+
+	bool notif_enabled = (value == BT_GATT_CCC_NOTIFY);
+
+	printk("HRS notifications %s", notif_enabled ? "enabled" : "disabled");
+}
+
+static ssize_t read_blsc(struct bt_conn *conn, const struct bt_gatt_attr *attr,
+			 void *buf, uint16_t len, uint16_t offset)
+{
+	return bt_gatt_attr_read(conn, attr, buf, len, offset, &hrs_blsc,
+				 sizeof(hrs_blsc));
+}
+
+BT_GATT_SERVICE_DEFINE(sensor_svc,
+	BT_GATT_PRIMARY_SERVICE(BT_UUID),
+	BT_GATT_CHARACTERISTIC(BT_UUID_MEASUREMENT, BT_GATT_CHRC_NOTIFY,
+			       BT_GATT_PERM_NONE, NULL, NULL, NULL),
+	BT_GATT_CCC(hrmc_ccc_cfg_changed,
+		    HRS_GATT_PERM_DEFAULT),
+	BT_GATT_CHARACTERISTIC(BT_UUID_TIMESTAMP, BT_GATT_CHRC_NOTIFY,
+			       BT_GATT_PERM_NONE, NULL, NULL, NULL),
+	BT_GATT_CCC(hrmc_ccc_cfg_changed,
+		    HRS_GATT_PERM_DEFAULT),
+);
+
+
+
+/* Fonction pour écrire des données brutes dans la caractéristique */
+
+
+
+bool connected_check = false;
+
+static struct bt_conn *conn;
+
+
+static const struct bt_data ad[] = {
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    BT_DATA_BYTES(BT_DATA_UUID16_ALL, 0xaa, 0xfe),
+    BT_DATA_BYTES(BT_DATA_UUID128_ALL, 0x0f, 0x18),
+};
+
+
+static void bt_ready(void)
+{
+    int err;
+
+    printk("Bluetooth initialized\n");
+
+
+
+    struct bt_le_adv_param adv_param = {
+        .options = BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_NAME,
+        .interval_min = BT_GAP_ADV_FAST_INT_MIN_1,
+        .interval_max = BT_GAP_ADV_FAST_INT_MAX_1,
+        .id = BT_ID_DEFAULT,
+        .sid = 0,
+        .peer = NULL,
+    };
+
+    err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad), NULL, 0);
+    if (err) {
+        printk("Advertising failed to start (err %d)\n", err);
+        return;
+    }
+
+    printk("Advertising successfully started\n");
+}
+
+static void connected(struct bt_conn *conn, uint8_t err)
+{
+    if (err) {
+        printk("Connection failed (err 0x%02x)\n", err);
+		connected_check = false;
+    } else {
+        printk("Connected\n");
+        connected_check = true;
+		char buff = 'A';
+		bt_gatt_notify(NULL, &sensor_svc.attrs[1], &buff, 1);
+    }
+}
+
+
+static void disconnected(struct bt_conn *conn, uint8_t err)
+{
+    printk("Disconnected (err 0x%02x)\n", err);
+	connected_check = false;
+}
+
+
+BT_CONN_CB_DEFINE(conn_callbacks) = {
+	.connected = connected,
+	.disconnected = disconnected,
+};
+
+
+static struct nvs_fs fs;
+
+#define NVS_PARTITION		storage_partition
+#define NVS_PARTITION_DEVICE	FIXED_PARTITION_DEVICE(NVS_PARTITION)
+#define NVS_PARTITION_OFFSET	FIXED_PARTITION_OFFSET(NVS_PARTITION)
+
+
+
+const struct device *uart1 = DEVICE_DT_GET(DT_NODELABEL(uart0));
+const struct device *gpio_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+
+
+
+static uint8_t rx_buf[10] = {0}; //A buffer to store incoming UART data
+bool recieved = false;
+
+
+#if !DT_NODE_EXISTS(DT_PATH(zephyr_user)) || \
+	!DT_NODE_HAS_PROP(DT_PATH(zephyr_user), io_channels)
+#error "No suitable devicetree overlay specified"
+#endif
+
+#define DT_SPEC_AND_COMMA(node_id, prop, idx) \
+	ADC_DT_SPEC_GET_BY_IDX(node_id, idx),
+
+/* Data of ADC io-channels specified in devicetree. */
+static const struct adc_dt_spec adc_channels[] = {
+	DT_FOREACH_PROP_ELEM(DT_PATH(zephyr_user), io_channels,
+			     DT_SPEC_AND_COMMA)
+};
+
+
+static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data)
+{
+	switch (evt->type) {
+	
+	case UART_TX_DONE:
+
+		break;
+
+	case UART_TX_ABORTED:
+		// do something
+		break;
+		
+	case UART_RX_RDY:
+		recieved = true;
+		break;
+
+	case UART_RX_BUF_REQUEST:
+		break;
+
+	case UART_RX_BUF_RELEASED:
+		break;
+		
+	case UART_RX_DISABLED:
+		uart_rx_enable(dev, rx_buf, sizeof(rx_buf), 100);
+		break;
+
+	case UART_RX_STOPPED:
+		break;
+		
+	default:
+		break;
+	}
+}
+
+void configure_gpio_pin_as_input()
+{
+    // Configure pin 15 on port 1 as an input
+    NRF_P1->PIN_CNF[15] = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
+                          (GPIO_PIN_CNF_INPUT_Connect << GPIO_PIN_CNF_INPUT_Pos) |
+                          (GPIO_PIN_CNF_PULL_Disabled << GPIO_PIN_CNF_PULL_Pos) |
+                          (GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
+                          (GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
+}
+
+// Function to check if GPIO 1.15 is high
+int is_gpio_pin_high()
+{
+    return (NRF_P1->IN & (1 << 15)) ? 1 : 0;
+}
+
+void wait_for_string(struct device *uart_dev, const char *target)
+{
+    size_t target_len = strlen(target);
+    size_t buf_len = target_len; // Buffer length matches the target string length
+    uint8_t buf[buf_len];
+    size_t buf_pos = 0;
+
+    while (1) {
+        uint8_t c;
+		uart_rx_enable(uart_dev, &c, 1, SYS_FOREVER_MS);
+        if (c) {
+			
+            // Add the new character to the buffer
+            buf[buf_pos++] = c;
+
+            // If buffer is full, shift the contents to the left
+            if (buf_pos >= buf_len) {
+                buf_pos = buf_len - 1;
+                memmove(buf, buf + 1, buf_pos);
+            }
+
+			printk("buf: %s\n", buf);
+
+            // Null-terminate the buffer for string comparison
+            buf[buf_pos] = '\0';
+
+            // Check if the buffer matches the target string
+            if (strcmp((char *)buf, target) == 0) {
+                printk("Received target string: %s\n", target);
+                return;
+            }
+        }
+
+        // Small delay to prevent busy-waiting
+        k_sleep(K_MSEC(10));
+    }
+}
+
+int main()
+{
+	
+	//     // Configure GPIO 1.15 as input
+    // configure_gpio_pin_as_input();
+	// uart_callback_set(uart1, uart_cb, NULL);
+	// while(1){
+    //     // Check if GPIO 1.15 is high
+    //     if (is_gpio_pin_high()) {
+	// 		uart_rx_enable(uart1, rx_buf, sizeof(rx_buf), 100);
+    //         printk("config\n");
+	// 		if (recieved) {
+	// 			printk("recieved\n %s\n", rx_buf);
+	// 			if (strstr(rx_buf, "devices") != NULL) {
+	// 				// Store the received message on flash
+	// 				printk("ready\n");
+	// 				wait_for_string(uart1, "d1:");
+	// 				printk('ok');
+	// 			}
+	// 			recieved = false;
+	// 		}
+	// 	}
+	// 	k_sleep(K_MSEC(500));
+	// }
+
+	// return 0;
+	k_sleep(K_MSEC(1000));
+	bool connected_check = false;
+    int err;
+    struct flash_pages_info info;
+	const struct device *i2c_dev = device_get_binding("I2C_0");
+	uint8_t write_buff = 0;
+	uint8_t rtc_data[7] = {0};
+
+    fs.flash_device = NVS_PARTITION_DEVICE;
+	if (!device_is_ready(fs.flash_device)) {
+		printk("Flash device %s is not ready\n", fs.flash_device->name);
+		return 0;
+	}
+	fs.offset = NVS_PARTITION_OFFSET;
+	int rc = flash_get_page_info_by_offs(fs.flash_device, fs.offset, &info);
+	if (rc) {
+		printk("Unable to get page info\n");
+		return 0;
+	}
+	fs.sector_size = info.size;
+	fs.sector_count = 3U;
+
+	rc = nvs_mount(&fs);
+	if (rc) {
+		printk("Flash Init failed\n");
+		return 0;
+	}
+
+	sensor_config config_struct_gpio = {
+			.adress=0,
+			.type = GPIO,
+			.num_registers=-1,
+			.reg_addr={0},
+			._id = 5,
+			.channel = adc_channels,
+			.value_size = sizeof(int16_t),
+			.Pin=AIN1
+	};
+	sensor *third = configure_sensor(&config_struct_gpio);
+
+
+	sensor_config config_struct_i2c = {
+			.adress=0x68,
+			.type = I2C,
+			.num_registers=2,
+			.reg_addr={0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+			._id = 0,
+			.channel = NULL,
+			.value_size = sizeof(uint8_t)
+	};
+	sensor *first = configure_sensor(&config_struct_i2c);
+
+		
+    while(!device_is_ready(i2c_dev))
+    {
+        printk("device not ready \n");
+        k_sleep(K_MSEC(100));
+    }
+
+	err = bt_enable(NULL);
+	if (err) {
+		printk("Bluetooth init failed (err %d)\n", err);
+	}
+
+
+
+	bt_ready();
+
+	//printk("RTC Data: %02x:%02x:%02x %02x/%02x/%02x\n", time.hour, time.min, time.sec, time.date, time.month, time.year);
+	
+	struct flash_entery *data;
+	while(1){
+		int i = 0;
+		while(1)
+		{       
+			if(++i>5) break;
+			read_sensor(i2c_dev, third);
+			printk("value from GPIO sensor: %d\n", *( (int32_t *)third->values));
+			k_sleep(K_MSEC(1000));
+			write_data_fs(&fs, third);
+		}
+		
+
+		data = (struct flash_entery *)calloc(third->sucessful_read, sizeof(struct flash_entery));
+
+
+		read_history_into(&fs, third, data);
+
+		for(i = 0; i<third->sucessful_read; i++)
+		{
+				// Send data through BLE connection
+				err = bt_gatt_notify(NULL, &sensor_svc.attrs[1], &data[i].value, sizeof(data[i].value));
+				err = bt_gatt_notify(NULL, &sensor_svc.attrs[5], &data[i].timestamp, sizeof(uint32_t));
+				if (err<0) {
+					printk("Failed to send data over BLE connection (err %d)\n", err);
+				}
+				k_sleep(K_MSEC(1000));
+
+		}
+		k_sleep(K_MSEC(1000));
+	}
+
+	free(data);
+	nvs_clear(&fs);
+	free(third->values);
+	free(third);
+
+
+	return 0;
+}
