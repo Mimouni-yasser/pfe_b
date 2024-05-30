@@ -63,23 +63,25 @@ struct bt_uuid_128 uuid = BT_UUID_INIT_128(0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0
 
 
 static uint8_t hrs_blsc;
-bool notif_enabled;
+bool notif_enabled = false;
+bool notif_enabled2 = false;
 
 static void hrmc_ccc_cfg_changed(const struct bt_gatt_attr *attr, uint16_t value)
 {
-	ARG_UNUSED(attr);
 
 	notif_enabled = (value == BT_GATT_CCC_NOTIFY);
 
-	printk("HRS notifications %s", notif_enabled ? "enabled" : "disabled");
+	printk(" notifications for value %s\n", notif_enabled ? "enabled" : "disabled");
+}
+static void hrmc_ccc_cfg_changed_t(const struct bt_gatt_attr *attr, uint16_t value)
+{
+
+	notif_enabled2 = (value == BT_GATT_CCC_NOTIFY);
+
+	printk(" notifications for timestamp %s\n", notif_enabled2 ? "enabled" : "disabled");
 }
 
-static ssize_t read_blsc(struct bt_conn *conn, const struct bt_gatt_attr *attr,
-			 void *buf, uint16_t len, uint16_t offset)
-{
-	return bt_gatt_attr_read(conn, attr, buf, len, offset, &hrs_blsc,
-				 sizeof(hrs_blsc));
-}
+
 
 BT_GATT_SERVICE_DEFINE(sensor_svc,
 	BT_GATT_PRIMARY_SERVICE(BT_UUID),
@@ -89,14 +91,14 @@ BT_GATT_SERVICE_DEFINE(sensor_svc,
 		    HRS_GATT_PERM_DEFAULT),
 	BT_GATT_CHARACTERISTIC(BT_UUID_TIMESTAMP, BT_GATT_CHRC_NOTIFY,
 			       BT_GATT_PERM_NONE, NULL, NULL, NULL),
-	BT_GATT_CCC(hrmc_ccc_cfg_changed,
+	BT_GATT_CCC(hrmc_ccc_cfg_changed_t,
 		    HRS_GATT_PERM_DEFAULT),
 );
 
 
 bool connected_check = false;
 
-static struct bt_conn *conn;
+
 
 
 static const struct bt_data ad[] = {

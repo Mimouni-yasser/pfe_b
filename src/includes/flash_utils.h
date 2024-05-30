@@ -6,13 +6,13 @@
 
 struct flash_entery
 {
-    time_stamp timestamp;
+    uint32_t timestamp;
     int16_t value;
 };
 
-void read_history_into(const struct nvs_fs *nvs_dev ,sensor *sn, struct flash_entery *readinto);
+void read_history_into( struct nvs_fs *nvs_dev, sensor *sn, struct flash_entery *readinto, size_t offset, size_t entries_to_read);
 
-void write_data_fs(const struct nvs_fs *nvs_dev ,sensor *sn);
+void write_data_fs(struct nvs_fs *nvs_dev ,sensor *sn);
 
 
 

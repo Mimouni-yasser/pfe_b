@@ -105,7 +105,7 @@ int read_sensor(const void *drivers, sensor *sn)
                 return -1;
         }
         //read_timestamp(drivers, &sn->timestamp);
-        sn->timestamp_32 = read_unix_timestamp(drivers);
+        sn->timestamp_32 = read_unix_timestamp((struct device *) drivers);
         printk("sn->timestamp_32 = %d\n", sn->timestamp_32);
 
         return 0;

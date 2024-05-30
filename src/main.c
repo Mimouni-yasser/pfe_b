@@ -22,6 +22,8 @@
 #include "includes/utils.h"
 #include "includes/BLE_conf.h"
 
+#define CHUNK_SIZE 10 //this is the number of bytes to send at a time, it is useed to prevent running out of RAM and subsequent crash/failure to send.
+
 //LOG_MODULE_REGISTER(alog);
 
 /////////////////////////////////////////////////////////////INITS
@@ -58,7 +60,7 @@ const struct device *uart1 = DEVICE_DT_GET(DT_NODELABEL(uart0));
 const struct device *gpio_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 const struct device *i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c0));
 
-sensor *first, *second, *third;
+sensor *first, *second, *third, *forth;
 
 
 
@@ -131,23 +133,21 @@ static void state_write_to_flash_run(void *o);
 static void state_send_bluetooth_run(void *o);
 static void state_sleep_entry(void *o);
 
-// State entry, run, and exit functions
-
-sensor *third;
 
 struct flash_pages_info info;
 uint8_t write_buff = 0;
 uint8_t rtc_data[7] = {0};
 
-static const bt_addr_t custom_mac = {
-    .val = { 0xDB, 0xEA, 0xFD, 0xEE, 0xAD, 0xDE }
+
+static bt_addr_le_t custom_mac = {
+	.a = (bt_addr_t) {0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
+	.type = BT_ADDR_LE_RANDOM
 };
 
 static void state_init_entry(void *o) {
     k_sleep(K_MSEC(1000));
 
 	int err;
-	bt_id_create(&custom_mac, NULL);
 
     fs.flash_device = NVS_PARTITION_DEVICE;
 	if (!device_is_ready(fs.flash_device)) {
@@ -206,7 +206,7 @@ static void state_init_entry(void *o) {
 		printk("Bluetooth init failed (err %d)\n", err);
 	}
 
-
+	bt_id_create(&custom_mac, NULL);
 
 	bt_ready();
 }
@@ -221,7 +221,12 @@ static void state_read_sensors_run(void *o) {
     int err;
 	// Read sensor data
     // Transition to the next state
-	read_sensor(i2c_dev, third);
+	err = read_sensor(i2c_dev, third);
+	if(err) {
+		printk("Failed to read sensor data\n");
+		smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
+		return;
+	}
 	printk("value from GPIO sensor: %d\n", *( (int32_t *)third->values));
 	write_data_fs(&fs, third);
 	k_sleep(K_SECONDS(1));
@@ -233,50 +238,50 @@ static void state_write_to_flash_run(void *o) {
     // Write sensor data to flash
     // Transition to the next state
 	//printk("hello from flash run state\n");
-	if(connected_check && notif_enabled) smf_set_state(SMF_CTX(o), &app_states[STATE_SEND_BLUETOOTH]);
+	if(connected_check && notif_enabled && notif_enabled2) smf_set_state(SMF_CTX(o), &app_states[STATE_SEND_BLUETOOTH]);
 	else smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
 }
 
+
 static void state_send_bluetooth_run(void *o) {
     // Send data through Bluetooth
-    // Transition to the next state
-	
-	int err = 0;
-	int i =0;
-	struct flash_entery *data;
+    size_t total_reads = third->sucessful_read;
+    size_t chunks = (total_reads + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    struct flash_entery *data = malloc(CHUNK_SIZE * sizeof(struct flash_entery));
 
-	
-	size_t required_ram = third->sucessful_read * sizeof(struct flash_entery);
+    if (data == NULL) {
+        printk("Failed to allocate memory\n");
+        smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
+        return;
+    }
 
+    for (size_t chunk_idx = 0; chunk_idx < chunks; chunk_idx++) {
+        // Calculate the number of entries to read in this chunk
+        size_t entries_to_read = CHUNK_SIZE;
+        if (chunk_idx == chunks - 1 && total_reads % CHUNK_SIZE != 0) {
+            entries_to_read = total_reads % CHUNK_SIZE;
+        }
 
-	data = malloc(required_ram);
-		
-		if (data == NULL) {
-			printk("Failed to allocate memory\n");
-			// Handle the error condition
-		} else {
-			// Use the allocated memory
-			printk("\tsuccessful reads for 3rd sensor: %d\n", third->sucessful_read);
-			read_history_into(&fs, third, data);
-			for (int i = 0; i < third->sucessful_read; i++) {
-				
-				printk("data values: %d\n", data[i].value);
-				// Send data through BLE connection
-				int err = bt_gatt_notify(NULL, &sensor_svc.attrs[1], &data[i].value, sizeof(data[i].value));
-				uint32_t timestamp = (data[i].timestamp.day << 24) | (data[i].timestamp.hour << 16) | (data[i].timestamp.min << 8) | data[i].timestamp.sec;
-				err = bt_gatt_notify(NULL, &sensor_svc.attrs[5], &timestamp, sizeof(uint32_t));
-				if (err < 0) {
-					printk("Failed to send data over BLE connection (err %d)\n", err);
-				}
-				// Delete flash entries with the id third->id
-				err = delete_entries_by_id(&fs, third->config._id);
-				if (err) {
-					printk("Failed to delete flash entries (err %d)\n", err);
-				}
-			}
-			free(data);
-			}
-	
+        // Read the chunk from flash
+        read_history_into(&fs, third, data, chunk_idx * CHUNK_SIZE, entries_to_read);
+
+        // Send each entry in the chunk over BLE
+        for (size_t i = 0; i < entries_to_read; i++) {
+            printk("Data values: %d\n", data[i].value);
+            int err = bt_gatt_notify(NULL, &sensor_svc.attrs[1], &data[i], sizeof(struct flash_entery));
+            if (err < 0) {
+                printk("Failed to send data over BLE connection (err %d)\n", err);
+                smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
+                free(data);
+                return;
+            }
+        }
+
+		delete_entries_with_id(&fs, third->config._id);
+    }
+
+    free(data);
+    third->sucessful_read = 0;
     smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
 }
 

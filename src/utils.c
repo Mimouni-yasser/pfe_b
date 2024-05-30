@@ -21,12 +21,12 @@ int bcd_to_decimal(uint8_t bcd_value) {
 
 
 
-void write_data_fs(const struct nvs_fs *nvs_dev ,sensor *sn) {
+void write_data_fs(struct nvs_fs *nvs_dev ,sensor *sn) {
     // Initialize NVS
     struct flash_entery data = 
     {
         .timestamp = sn->timestamp_32,
-        .value = *((int32_t*) sn->values),
+        .value = *((int16_t*) sn->values),
     };
 
 
@@ -38,56 +38,51 @@ void write_data_fs(const struct nvs_fs *nvs_dev ,sensor *sn) {
     }
 }
 
-void read_history_into(const struct nvs_fs *nvs_dev ,sensor *sn, struct flash_entery *readinto)
-{
-        int i =0;
-        for(i = 0; i<sn->sucessful_read; i++)
-        {
-                nvs_read_hist(nvs_dev, sn->config._id, &readinto[i], sizeof(struct flash_entery), i);
-          
-                printk("RTC Data: %02x:%02x:%02x %02x/%02x/%02x\n", readinto[i].timestamp.sec, readinto[i].timestamp.min, readinto[i].timestamp.hour, readinto[i].timestamp.date, readinto[i].timestamp.month, readinto[i].timestamp.year);
-        }
-
-    
+void read_history_into( struct nvs_fs *nvs_dev, sensor *sn, struct flash_entery *readinto, size_t offset, size_t entries_to_read) {
+    for (size_t i = 0; i < entries_to_read; i++) {
+        size_t entry_index = offset + i;  // Calculate the absolute entry index
+        nvs_read_hist(nvs_dev, sn->config._id, &readinto[i], sizeof(struct flash_entery), entry_index);
+    }
 }
+
 
 
 /* time stamp utilities*/
 
 
-int8_t read_timestamp(const struct device *i2c_dev, struct time_stamp *readinto)
-{
-        int8_t write_buff = 0x0;
-        uint8_t rtc_data[8];
-        int err = 0;
-        // Read data from RTC
-        err = i2c_write(i2c_dev, &write_buff, 1, 82);
+// int8_t read_timestamp(const struct device *i2c_dev, struct time_stamp *readinto)
+// {
+//         int8_t write_buff = 0x0;
+//         uint8_t rtc_data[8];
+//         int err = 0;
+//         // Read data from RTC
+//         err = i2c_write(i2c_dev, &write_buff, 1, 82);
 
-        printk("1: %d\n", err);
+//         printk("1: %d\n", err);
 
-        if( err < 0 ) return -1;
-        err = i2c_read(i2c_dev, &rtc_data, 7, 82);
+//         if( err < 0 ) return -1;
+//         err = i2c_read(i2c_dev, &rtc_data, 7, 82);
 
-        printk("2: %d\n", err);
+//         printk("2: %d\n", err);
 
-        if(err < 0 ) return -1;
+//         if(err < 0 ) return -1;
 
-        printk("RTC Data: %02x:%02x:%02x %02x/%02x/%02x\n", rtc_data[2], rtc_data[1], rtc_data[0], rtc_data[3], rtc_data[4], rtc_data[5]);
+//         printk("RTC Data: %02x:%02x:%02x %02x/%02x/%02x\n", rtc_data[2], rtc_data[1], rtc_data[0], rtc_data[3], rtc_data[4], rtc_data[5]);
 
-        readinto->sec = rtc_data[0];
-        readinto->min = rtc_data[1];
-        readinto->hour = rtc_data[2];
-        readinto->year = rtc_data[6];
-        readinto->date = rtc_data[4];
-        readinto->month = rtc_data[5];
+//         readinto->sec = rtc_data[0];
+//         readinto->min = rtc_data[1];
+//         readinto->hour = rtc_data[2];
+//         readinto->year = rtc_data[6];
+//         readinto->date = rtc_data[4];
+//         readinto->month = rtc_data[5];
 
 
 
 
 
         
-        return 0;
-}
+//         return 0;
+// }
 
 
 int8_t get_timestamp(struct device *i2c_dev, uint8_t *readinto)
@@ -134,3 +129,19 @@ uint32_t read_unix_timestamp(struct device *i2c_dev)
     return timestamp;
 }
 
+void delete_entries_with_id(struct nvs_fs *fs, uint16_t target_id)
+{
+    int rc;
+
+    while (true) {
+        rc = nvs_delete(fs, target_id);
+        if (rc == -ENOENT) {
+            break; // No more entries with this ID
+        } else if (rc) {
+            printk("Failed to delete entry with ID %d: %d\n", target_id, rc);
+            break;
+        } else {
+            printk("Deleted entry with ID %d\n", target_id);
+        }
+    }
+}
