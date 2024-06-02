@@ -6,6 +6,8 @@
 #include <zephyr/drivers/adc.h>
 #include <zephyr/drivers/uart.h>
 #include "includes/i2c_sensors.h"
+#include <zephyr/sys/util.h>
+#include <zephyr/pm/device.h>
 
 #include <zephyr/drivers/flash.h>
 #include <zephyr/storage/flash_map.h>
@@ -62,6 +64,7 @@ const struct device *i2c_dev = DEVICE_DT_GET(DT_NODELABEL(i2c0));
 
 sensor *first, *second, *third, *forth;
 
+sensor *list[4];
 
 
 static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data)
@@ -182,6 +185,31 @@ static void state_init_entry(void *o) {
 	third = configure_sensor(&config_struct_gpio);
 
 
+	sensor_config config_second_gpio = {
+			.adress=0,
+			.type = GPIO,
+			.num_registers=-1,
+			.reg_addr={0},
+			._id = 5,
+			.channel = &adc_channels[4],
+			.value_size = sizeof(int16_t),
+			.Pin=AIN1
+	};
+	second = configure_sensor(&config_second_gpio);
+
+	sensor_config config_forth_gpio = {
+			.adress=0,
+			.type = GPIO,
+			.num_registers=-1,
+			.reg_addr={0},
+			._id = 5,
+			.channel = &adc_channels[3],
+			.value_size = sizeof(int16_t),
+			.Pin=AIN1
+	};
+
+	forth = configure_sensor(&config_forth_gpio);
+
 	sensor_config config_struct_i2c = {
 			.adress=0x68,
 			.type = I2C,
@@ -191,7 +219,7 @@ static void state_init_entry(void *o) {
 			.channel = NULL,
 			.value_size = sizeof(uint8_t)
 	};
-	sensor *first = configure_sensor(&config_struct_i2c);
+	first = configure_sensor(&config_struct_i2c);
 
 		
     while(!device_is_ready(i2c_dev))
@@ -209,6 +237,14 @@ static void state_init_entry(void *o) {
 	bt_id_create(&custom_mac, NULL);
 
 	bt_ready();
+
+	list[0] = first;
+	list[1] = second;
+	list[2] = third;
+	list[3] = forth;
+
+	// Transition to the next state
+	smf_set_state(SMF_CTX(o), &app_states[STATE_READ_SENSORS]);
 }
 
 static void state_init_run(void *o) {
@@ -222,13 +258,25 @@ static void state_read_sensors_run(void *o) {
 	// Read sensor data
     // Transition to the next state
 	err = read_sensor(i2c_dev, third);
-	if(err) {
+	if(err){
 		printk("Failed to read sensor data\n");
 		smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
 		return;
 	}
 	printk("value from GPIO sensor: %d\n", *( (int32_t *)third->values));
 	write_data_fs(&fs, third);
+	k_sleep(K_SECONDS(1));
+
+	err = read_sensor(i2c_dev, first);
+	write_data_fs(&fs, first);
+	k_sleep(K_SECONDS(1));
+
+	err = read_sensor(i2c_dev, second);
+	write_data_fs(&fs, second);
+	k_sleep(K_SECONDS(1));
+
+	err = read_sensor(i2c_dev, forth);
+	write_data_fs(&fs, forth);
 	k_sleep(K_SECONDS(1));
 
     smf_set_state(SMF_CTX(o), &app_states[STATE_WRITE_TO_FLASH]);
@@ -238,14 +286,16 @@ static void state_write_to_flash_run(void *o) {
     // Write sensor data to flash
     // Transition to the next state
 	//printk("hello from flash run state\n");
-	if(connected_check && notif_enabled && notif_enabled2) smf_set_state(SMF_CTX(o), &app_states[STATE_SEND_BLUETOOTH]);
+	if(connected_check && notif_enabled) smf_set_state(SMF_CTX(o), &app_states[STATE_SEND_BLUETOOTH]);
 	else smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
 }
 
 
 static void state_send_bluetooth_run(void *o) {
     // Send data through Bluetooth
-    size_t total_reads = third->sucessful_read;
+
+	for(uint8_t i = 0; i<4; i++ ){
+    size_t total_reads = list[i]->sucessful_read;
     size_t chunks = (total_reads + CHUNK_SIZE - 1) / CHUNK_SIZE;
     struct flash_entery *data = malloc(CHUNK_SIZE * sizeof(struct flash_entery));
 
@@ -257,37 +307,39 @@ static void state_send_bluetooth_run(void *o) {
 
     for (size_t chunk_idx = 0; chunk_idx < chunks; chunk_idx++) {
         // Calculate the number of entries to read in this chunk
+		
+
         size_t entries_to_read = CHUNK_SIZE;
         if (chunk_idx == chunks - 1 && total_reads % CHUNK_SIZE != 0) {
             entries_to_read = total_reads % CHUNK_SIZE;
         }
 
         // Read the chunk from flash
-        read_history_into(&fs, third, data, chunk_idx * CHUNK_SIZE, entries_to_read);
+        read_history_into(&fs, list[i], data, chunk_idx * CHUNK_SIZE, entries_to_read);
 
         // Send each entry in the chunk over BLE
-        for (size_t i = 0; i < entries_to_read; i++) {
-            printk("Data values: %d\n", data[i].value);
-            int err = bt_gatt_notify(NULL, &sensor_svc.attrs[1], &data[i], sizeof(struct flash_entery));
-            if (err < 0) {
-                printk("Failed to send data over BLE connection (err %d)\n", err);
-                smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
-                free(data);
-                return;
-            }
-        }
-
-		delete_entries_with_id(&fs, third->config._id);
-    }
-
+			for (size_t i = 0; i < entries_to_read; i++) {
+				printk("Data values: %d\n", data[i].value);
+				int err = bt_gatt_notify(NULL, &sensor_svc.attrs[1], &data[i], sizeof(struct flash_entery));
+				if (err < 0) {
+					printk("Failed to send data over BLE connection (err %d)\n", err);
+					smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
+					free(data);
+					return;
+				}
+			}
+		}
+		
     free(data);
-    third->sucessful_read = 0;
+    list[i]->sucessful_read = 0;
+		//delete_entries_with_id(&fs, third->config._id);
+    }
     smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
 }
 
 static void state_sleep_entry(void *o) {
-    // Enter sleep mode
-	k_sleep(K_SECONDS(2));
+
+	k_sleep(K_SECONDS(3));
     // Implement logic to wake up from sleep
     // Transition to the initial state to repeat the cycle
     smf_set_state(SMF_CTX(o), &app_states[STATE_READ_SENSORS]);
@@ -305,6 +357,20 @@ static const struct smf_state app_states[] = {
 int main(void) {
     int32_t ret;
 
+	NRF_P1->PIN_CNF[4] = (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) |
+						(GPIO_PIN_CNF_INPUT_Connect << GPIO_PIN_CNF_INPUT_Pos) |
+						(GPIO_PIN_CNF_PULL_Disabled << GPIO_PIN_CNF_PULL_Pos) |
+						(GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
+						(GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
+
+	
+	if(NRF_P1->IN & (1 << 4))
+	{
+		printk("entering configuration mode\n");
+		//accept configuration from BLE
+		configure_sensor_BLE();
+	}
+
     // Set initial state
     smf_set_initial(SMF_CTX(&app_obj), &app_states[STATE_INIT]);
 
@@ -316,7 +382,6 @@ int main(void) {
             // Handle return code and terminate state machine if needed
             break;
         }
-		k_sleep(K_SECONDS(2));
     }
 
     return 0;

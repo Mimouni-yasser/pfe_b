@@ -54,15 +54,15 @@
 	BT_UUID_DECLARE_16(0x80)
 
 #define BT_UUID_MEASUREMENT \
-	BT_UUID_DECLARE_16(0x81)
+	BT_UUID_DECLARE_16(0x2BFC)
 
 #define BT_UUID_TIMESTAMP \
-	BT_UUID_DECLARE_16(0x82)
+	BT_UUID_DECLARE_16(0x2A11)
 	
 struct bt_uuid_128 uuid = BT_UUID_INIT_128(0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0);
 
 
-static uint8_t hrs_blsc;
+
 bool notif_enabled = false;
 bool notif_enabled2 = false;
 
@@ -159,6 +159,68 @@ BT_CONN_CB_DEFINE(conn_callbacks) = {
 	.connected = connected,
 	.disconnected = disconnected,
 };
+
+bool config_connected_check = false;
+void config_connected()
+{
+	printk("Connected\n");
+	config_connected_check = true;
+
+}
+void config_disconnected()
+{
+	printk("Disconnected\n");
+	config_connected_check = false;
+}
+
+
+struct bt_conn_cb config_cb_ble = {
+	.connected = config_connected,
+	.disconnected = config_disconnected,
+};
+
+const char name[] = "smart box config";
+static const struct bt_data ad_conf[] = {
+	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+	BT_DATA_BYTES(BT_DATA_UUID16_ALL, 0xaa, 0xfe),
+	BT_DATA_BYTES(BT_DATA_UUID128_ALL, 0x0f, 0x18),
+	BT_DATA(BT_DATA_NAME_COMPLETE, name, sizeof(name) - 1),
+};
+
+
+void configure_sensor_BLE()
+{
+
+
+	int err;
+
+	err = bt_enable(NULL);
+	if (err) {
+		printk("Bluetooth init failed (err %d)\n", err);
+		return;
+	}
+
+	struct bt_le_adv_param adv_param = {
+		.options = BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_NAME,
+		.interval_min = BT_GAP_ADV_SLOW_INT_MIN,
+		.interval_max = BT_GAP_ADV_SLOW_INT_MAX,
+		.id = BT_ID_DEFAULT,
+		.sid = 0,
+		.peer = NULL,
+	};
+
+
+
+	err = bt_le_adv_start(&adv_param, ad_conf, ARRAY_SIZE(ad), NULL, 0);
+	if (err) {
+		printk("Advertising failed to start (err %d)\n", err);
+		return;
+	}
+	//register a call back for when the device is connected
+	bt_conn_cb_register(&config_cb_ble);
+
+}
+
 
 
 #endif // BLE_CONF_H

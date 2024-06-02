@@ -24,7 +24,7 @@
 	zephyr,user {
 		LED-gpios = <&gpio1 15 0>;
 		config-gpios = <&gpio0 4 GPIO_PULL_DOWN>;
-		io-channels = <&adc 0>, <&adc 1>, <&adc 7>;
+		io-channels = <&adc 0>, <&adc 1>, <&adc 3>, <&adc 2>, <&adc 7>;
 	};
 };
 
@@ -39,18 +39,38 @@
 		zephyr,gain = "ADC_GAIN_1_6";
 		zephyr,reference = "ADC_REF_INTERNAL";
 		zephyr,acquisition-time = <0>;
-		zephyr,input-positive = <NRF_SAADC_VDD>; /* P0.03 */
+		zephyr,input-positive = <NRF_SAADC_AIN0>; /* P0.03 */
 		zephyr,resolution = <12>;
 	};
 
 	channel@1 {
 		reg = <1>;
 		zephyr,gain = "ADC_GAIN_1_6";
-		zephyr,reference = "ADC_REF_VDD_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
 		zephyr,acquisition-time = <0>;
-		zephyr,input-positive = <NRF_SAADC_VDD>;
+		zephyr,input-positive = <NRF_SAADC_AIN1>;
 		zephyr,resolution = <14>;
 		zephyr,oversampling = <8>;
+	};
+	
+	channel@2 {
+		reg = <2>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <0>;
+		zephyr,input-positive = <NRF_SAADC_AIN5>;
+		zephyr,resolution = <14>;
+		zephyr,oversampling = <8>;
+	};
+
+	channel@3 {
+		reg = <3>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,vref-mv = <750>;
+		zephyr,acquisition-time = <0>;
+		zephyr,input-positive = <NRF_SAADC_AIN6>; /* P0.30 */
+		zephyr,resolution = <12>;
 	};
 
 	channel@7 {
@@ -59,7 +79,7 @@
 		zephyr,reference = "ADC_REF_INTERNAL";
 		zephyr,vref-mv = <750>;
 		zephyr,acquisition-time = <0>;
-		zephyr,input-positive = <NRF_SAADC_AIN6>; /* P0.30 */
+		zephyr,input-positive = <NRF_SAADC_VDD>;
 		zephyr,resolution = <12>;
 	};
 };
