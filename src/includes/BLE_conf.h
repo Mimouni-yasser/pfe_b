@@ -56,8 +56,8 @@
 #define BT_UUID_MEASUREMENT \
 	BT_UUID_DECLARE_16(0x2BFC)
 
-#define BT_UUID_TIMESTAMP \
-	BT_UUID_DECLARE_16(0x2A11)
+#define BT_UUID_CONFIG \
+	BT_UUID_DECLARE_16(0x055)
 	
 struct bt_uuid_128 uuid = BT_UUID_INIT_128(0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0);
 
@@ -83,17 +83,44 @@ static void hrmc_ccc_cfg_changed_t(const struct bt_gatt_attr *attr, uint16_t val
 
 
 
-BT_GATT_SERVICE_DEFINE(sensor_svc,
+// BT_GATT_SERVICE_DEFINE(sensor_svc,
+// 	BT_GATT_PRIMARY_SERVICE(BT_UUID),
+// 	BT_GATT_CHARACTERISTIC(BT_UUID_MEASUREMENT, BT_GATT_CHRC_NOTIFY,
+// 			       BT_GATT_PERM_NONE, NULL, NULL, NULL),
+// 	BT_GATT_CCC(hrmc_ccc_cfg_changed,
+// 		    HRS_GATT_PERM_DEFAULT),
+// 	BT_GATT_CHARACTERISTIC(BT_UUID_CONFIG, BT_GATT_CHRC_NOTIFY,
+// 			       BT_GATT_PERM_WRITE, NULL, NULL, NULL),
+// 	BT_GATT_CCC(hrmc_ccc_cfg_changed_t,
+// 		    HRS_GATT_PERM_DEFAULT),
+// );
+
+static struct bt_gatt_attr svc_attrs[] = {
 	BT_GATT_PRIMARY_SERVICE(BT_UUID),
 	BT_GATT_CHARACTERISTIC(BT_UUID_MEASUREMENT, BT_GATT_CHRC_NOTIFY,
 			       BT_GATT_PERM_NONE, NULL, NULL, NULL),
 	BT_GATT_CCC(hrmc_ccc_cfg_changed,
 		    HRS_GATT_PERM_DEFAULT),
-	BT_GATT_CHARACTERISTIC(BT_UUID_TIMESTAMP, BT_GATT_CHRC_NOTIFY,
-			       BT_GATT_PERM_NONE, NULL, NULL, NULL),
+	BT_GATT_CHARACTERISTIC(BT_UUID_CONFIG, BT_GATT_CHRC_NOTIFY,
+			       BT_GATT_PERM_WRITE, NULL, NULL, NULL),
 	BT_GATT_CCC(hrmc_ccc_cfg_changed_t,
 		    HRS_GATT_PERM_DEFAULT),
-);
+};
+struct bt_gatt_service sensor_svc;
+
+static struct bt_gatt_attr svc_config[] = {
+	BT_GATT_PRIMARY_SERVICE(BT_UUID),
+	BT_GATT_CHARACTERISTIC(BT_UUID_CONFIG, BT_GATT_CHRC_NOTIFY,
+			       BT_GATT_PERM_READ, NULL, NULL, NULL),
+	BT_GATT_CCC(hrmc_ccc_cfg_changed,
+		    HRS_GATT_PERM_DEFAULT),
+};
+
+
+bt_gatt_attr_write_func_t write_func()
+{
+	printk("reading");
+}
 
 
 bool connected_check = false;
@@ -192,32 +219,7 @@ void configure_sensor_BLE()
 {
 
 
-	int err;
 
-	err = bt_enable(NULL);
-	if (err) {
-		printk("Bluetooth init failed (err %d)\n", err);
-		return;
-	}
-
-	struct bt_le_adv_param adv_param = {
-		.options = BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_NAME,
-		.interval_min = BT_GAP_ADV_SLOW_INT_MIN,
-		.interval_max = BT_GAP_ADV_SLOW_INT_MAX,
-		.id = BT_ID_DEFAULT,
-		.sid = 0,
-		.peer = NULL,
-	};
-
-
-
-	err = bt_le_adv_start(&adv_param, ad_conf, ARRAY_SIZE(ad), NULL, 0);
-	if (err) {
-		printk("Advertising failed to start (err %d)\n", err);
-		return;
-	}
-	//register a call back for when the device is connected
-	bt_conn_cb_register(&config_cb_ble);
 
 }
 

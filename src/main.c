@@ -28,6 +28,9 @@
 
 //LOG_MODULE_REGISTER(alog);
 
+
+
+
 /////////////////////////////////////////////////////////////INITS
 static struct nvs_fs fs;
 
@@ -148,7 +151,18 @@ static bt_addr_le_t custom_mac = {
 };
 
 static void state_init_entry(void *o) {
-    k_sleep(K_MSEC(1000));
+
+	sensor_svc = (struct bt_gatt_service) BT_GATT_SERVICE(
+		svc_config
+	);
+
+    int reg_err = bt_gatt_service_register(&sensor_svc);
+	printk("%d", reg_err);
+
+
+	k_sleep(K_MSEC(1000));
+
+
 
 	int err;
 
@@ -363,15 +377,51 @@ int main(void) {
 						(GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
 						(GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
 
-	
+		k_sleep(K_SECONDS(1));
 	if(NRF_P1->IN & (1 << 4))
 	{
+		int err;
+		
+				if(err)
+			printk("error during registring of the service");
 		printk("entering configuration mode\n");
-		//accept configuration from BLE
-		configure_sensor_BLE();
+			//accept configuration from BLE
+	
+		k_sleep(K_SECONDS(1));
+		err = bt_enable(NULL);
+		if (err) {
+			printk("Bluetooth init failed (err %d)\n", err);
+			return;
+		}
+		k_sleep(K_SECONDS(1));
+
+		
+
+
+		struct bt_le_adv_param adv_param = {
+			.options = BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_USE_NAME,
+			.interval_min = BT_GAP_ADV_SLOW_INT_MIN,
+			.interval_max = BT_GAP_ADV_SLOW_INT_MAX,
+			.id = BT_ID_DEFAULT,
+			.sid = 0,
+			.peer = NULL,
+		};
+
+
+
+		err = bt_le_adv_start(&adv_param, ad_conf, ARRAY_SIZE(ad), NULL, 0);
+		if (err) {
+			printk("Advertising failed to start (err %d)\n", err);
+			return;
+		}
+		k_sleep(K_SECONDS(1));
+
+		printk("configuration ongoing");
+
+		return 0;
 	}
 
-    // Set initial state
+    //Set initial state
     smf_set_initial(SMF_CTX(&app_obj), &app_states[STATE_INIT]);
 
     // Run the state machine
