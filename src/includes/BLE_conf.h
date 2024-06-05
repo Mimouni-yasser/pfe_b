@@ -106,21 +106,42 @@ static struct bt_gatt_attr svc_attrs[] = {
 	BT_GATT_CCC(hrmc_ccc_cfg_changed_t,
 		    HRS_GATT_PERM_DEFAULT),
 };
+
+
+
+
+
+bt_gatt_attr_write_func_t write_func(struct bt_conn *conn, const struct bt_gatt_attr *attr, const void *buf, uint16_t len, uint16_t offset, uint8_t flags)
+{
+	printk("\nrecieved\n");
+	for(int i=0; i<len; i++)
+	{
+		printk("%d", ((char *)buf)[i] != 0);
+	}
+	printk("\n");
+	
+	char resp[] = "ok";
+
+	//bt_gatt_write_without_response(conn, attr->handle, resp, sizeof(resp), false);
+	
+	// for(int i=0; i<len; i++)
+	// {
+	// 	printk("%s", ((char *)buf)[i]);
+	// }
+}
+
 struct bt_gatt_service sensor_svc;
 
 static struct bt_gatt_attr svc_config[] = {
 	BT_GATT_PRIMARY_SERVICE(BT_UUID),
-	BT_GATT_CHARACTERISTIC(BT_UUID_CONFIG, BT_GATT_CHRC_NOTIFY,
-			       BT_GATT_PERM_READ, NULL, NULL, NULL),
+	BT_GATT_CHARACTERISTIC(BT_UUID_CONFIG, BT_GATT_CHRC_NOTIFY | BT_GATT_CHRC_WRITE | BT_GATT_CHRC_WRITE_WITHOUT_RESP,
+			       BT_GATT_PERM_WRITE | BT_GATT_PERM_READ, NULL, write_func, NULL),
 	BT_GATT_CCC(hrmc_ccc_cfg_changed,
 		    HRS_GATT_PERM_DEFAULT),
 };
 
 
-bt_gatt_attr_write_func_t write_func()
-{
-	printk("reading");
-}
+
 
 
 bool connected_check = false;

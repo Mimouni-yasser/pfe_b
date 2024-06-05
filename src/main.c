@@ -70,39 +70,7 @@ sensor *first, *second, *third, *forth;
 sensor *list[4];
 
 
-static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data)
-{
-	switch (evt->type) {
-	
-	case UART_TX_DONE:
 
-		break;
-
-	case UART_TX_ABORTED:
-		// do something
-		break;
-		
-	case UART_RX_RDY:
-		recieved = true;
-		break;
-
-	case UART_RX_BUF_REQUEST:
-		break;
-
-	case UART_RX_BUF_RELEASED:
-		break;
-		
-	case UART_RX_DISABLED:
-		uart_rx_enable(dev, rx_buf, sizeof(rx_buf), 100);
-		break;
-
-	case UART_RX_STOPPED:
-		break;
-		
-	default:
-		break;
-	}
-}
 
 
 
@@ -368,6 +336,8 @@ static const struct smf_state app_states[] = {
     [STATE_SLEEP] = SMF_CREATE_STATE(state_sleep_entry, NULL, NULL),
 };
 
+struct bt_gatt_service config_serv = BT_GATT_SERVICE(svc_config);
+
 int main(void) {
     int32_t ret;
 
@@ -382,7 +352,8 @@ int main(void) {
 	{
 		int err;
 		
-				if(err)
+		bt_gatt_service_register(&config_serv);
+		if(err)
 			printk("error during registring of the service");
 		printk("entering configuration mode\n");
 			//accept configuration from BLE
