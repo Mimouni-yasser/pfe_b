@@ -21,6 +21,8 @@
 #include <zephyr/bluetooth/gatt.h>
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/smf.h>
+#include <string.h>
+#include <stdlib.h>
 
 #define CONFIG_SETTINGS 1
 
@@ -116,11 +118,61 @@ bt_gatt_attr_write_func_t write_func(struct bt_conn *conn, const struct bt_gatt_
 	printk("\nrecieved\n");
 	for(int i=0; i<len; i++)
 	{
-		printk("%d", ((char *)buf)[i] != 0);
+		printk("%c", ((char *)buf)[i]);
 	}
 	printk("\n");
 	
-	char resp[] = "ok";
+	char *ptr = NULL;
+	uint8_t i = 0;
+	sensor_config array[] = 
+		{first_conf, second_conf, third_conf, forth_conf};
+
+
+	ptr = strtok((char *) buf, "-" );
+
+
+	if(strcmp(ptr, "f")==0)
+		i = 0;
+	else if(strcmp(ptr, "s") == 0)
+		i = 1;
+	else if(strcmp(ptr, "t") == 0)
+		i=2;
+	else if(strcmp(ptr, "d") == 0)
+		i = 3;
+
+	printk("config for sensor N*%d\n", i);
+
+	for(int j =0; j<6; j++)
+	{
+		ptr = strtok(NULL, "-");
+		if(j == 0){
+			array[i].type = strcmp(ptr, "I") == 0 ? I2C : strcmp(ptr, "S") == 0 ? SPI : strcmp(ptr, "G") == 0 ? GPIO : UART;
+			printk("type %d = %d\n", j, array[i].type);
+		}
+		if(j==1){
+			array[i]._id = strtol(ptr, NULL, 16);
+			printk("id %d = %d\n", j, array[i]._id);
+		}
+		if(j==2){
+			array[i].adress = strtol(ptr, NULL, 16);
+			printk("address %d = %d\n", j, array[i].adress);
+		}
+		if(j==3){
+			array[i].reg_addr[0] = strtol(ptr, NULL, 16);
+			printk("reg_addr 1 %d = %d\n", j, array[i].reg_addr[0]);
+		}
+		if(j==4){
+			array[i].reg_addr[1] = strtol(ptr, NULL, 16);
+			printk("reg_addr 2 %d = %d\n", j, array[i].reg_addr[1]);
+		}
+		if(j==5){
+			array[i].Pin = strtol(ptr, NULL, 16);
+			printk("Pin %d = %d\n", j, array[i].Pin);
+		}
+
+	}
+
+	
 
 	//bt_gatt_write_without_response(conn, attr->handle, resp, sizeof(resp), false);
 	

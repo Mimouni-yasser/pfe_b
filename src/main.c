@@ -9,6 +9,8 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/pm/device.h>
 
+
+
 #include <zephyr/drivers/flash.h>
 #include <zephyr/storage/flash_map.h>
 #include <zephyr/fs/nvs.h>
@@ -22,6 +24,14 @@
 #include <zephyr/smf.h>
 #include <zephyr/logging/log.h>
 #include "includes/utils.h"
+
+
+
+sensor_config first_conf;
+sensor_config second_conf;
+sensor_config third_conf;
+sensor_config forth_conf;
+
 #include "includes/BLE_conf.h"
 
 #define CHUNK_SIZE 10 //this is the number of bytes to send at a time, it is useed to prevent running out of RAM and subsequent crash/failure to send.

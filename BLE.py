@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QTableWidget,
 
 from PyQt5.QtCore import QTimer, Qt
 import sys
+import io
 
 CHARA_UUID = "00000055-0000-1000-8000-00805f9b34fb"
 SRVC_UUID = "00000080-0000-1000-8000-00805f9b34fb"
@@ -46,14 +47,18 @@ class MainWindow(QMainWindow):
         
         self.interface_type = QComboBox()
         self.interface_type.addItems(["", "i2c", "GPIO"])
-        self.pin = QLineEdit()
+        self.pin = QComboBox()
+        self.pin.addItems(["", "P0.02", "P0.03", "P0.04", "P0.05"])
         self.i2c_address = QLineEdit()
         self.registers_1 = QLineEdit()
         self.registers_2 = QLineEdit()
         self.id_input = QLineEdit()
         self.send_config_button = QPushButton("Send Config")
+        self.sensor_name = QComboBox()
+        self.sensor_name.addItems(["", "first", "second", "third", "forth"])
         
         form_layout = QFormLayout()
+        form_layout.addRow(QLabel("sensor name"), self.sensor_name)
         form_layout.addRow(QLabel("Sensor ID"), self.id_input)
         form_layout.addRow(QLabel("Interface Type:"), self.interface_type)
         form_layout.addRow(QLabel("Pin:"), self.pin)
@@ -127,41 +132,32 @@ class MainWindow(QMainWindow):
             return
         id = self.id_input.text()
         interface_type = self.interface_type.currentText()
-        pin = self.pin.text()
+        pin = self.pin.currentText()
+        name = self.sensor_name.currentText()
         i2c_address = self.i2c_address.text()
         registers_1 = self.registers_1.text()
         registers_2 = self.registers_2.text()
-        if any(v == '' or v is None for v in [interface_type, pin, i2c_address, registers_1, registers_2]):
+        if any(v == '' or v is None for v in [id, name, interface_type, pin, i2c_address, registers_1, registers_2]):
             QMessageBox.warning(self, "Missing Values", "Please fill in all the fields.")
             return
         print(id, interface_type, pin, i2c_address, registers_1, registers_2)
         
         
-        msg = ""
+        buf = ""
+        buf = buf + 'd' if name == 'forth' else buf + name[0].lower()
+        buf = buf +'-'
+        buf = buf + 'I' if interface_type == "i2c" else buf + 'G'
+        buf = buf + '-'
+        buf = buf + str(hex(int(id))).replace('0x', '').zfill(2) + '-'
+        buf = buf + str(hex(int(i2c_address))).replace('0x', '').zfill(2) + '-'
+        buf = buf + str(hex(int(registers_1))).replace('0x', '').zfill(2) + '-'
+        buf = buf + str(hex(int(registers_2))).replace('0x', '').zfill(2) + '-'
+        buf = buf + str(hex(int(pin.replace('P0.0', '')))).replace('0x', '').zfill(2)
+        buf = buf + '\0'
         
-        id_bin = bin(int(id))[2:].zfill(8)
-        msg = msg + str(id_bin)
-        
-        if interface_type == "i2c":
-            msg = msg + "01"
-        elif interface_type == "GPIO":
-            msg = msg + "00"
-        else:
-            msg = msg + "11"
-        
-        i2c_address_bin = bin(int(i2c_address, 16))[2:].zfill(8)
-        msg = msg + str(i2c_address_bin)
-        
-        registers_1_bin = bin(int(registers_1))[2:].zfill(8)
-        msg = msg + str(registers_1_bin)
-
-        registers_2_bin = bin(int(registers_2))[2:].zfill(8)
-        msg = msg + str(registers_2_bin)
-        
-        buf =  bitstring_to_bytes(msg)
         print(buf)
         #self.send_config_button.setEnabled(False)
-        asyncio.ensure_future(self.send_to_mac(dev, 5, 5))
+        asyncio.ensure_future(self.send_to_mac(dev, bytearray(buf, 'utf-8'), 5))
         
     async def send_to_mac(self, mac, buf, retries):
         try_n = 0
@@ -177,7 +173,7 @@ class MainWindow(QMainWindow):
                         print(k)
                         ok = True
                         print(k.max_write_without_response_size)
-                        await client.write_gatt_char(k, buf, True)
+                        await client.write_gatt_char(k, buf, False)
                         self.send_config_button.setEnabled(True)
                         return 0
                 except bleak.exc.BleakDeviceNotFoundError as e:

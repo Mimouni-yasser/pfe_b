@@ -22,6 +22,8 @@
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/smf.h>
 
+
+
 int bcd_to_decimal(uint8_t bcd_value);
 // int8_t read_timestamp(struct device *dev_i2c, struct time_stamp *readinto);
 // int8_t get_timestamp(struct device *dev_i2c, struct time_stamp *readinto);
