@@ -15,7 +15,7 @@ sensor* configure_sensor(sensor_config *configuration)
                 sensor *new_sensor = (sensor*)malloc(sizeof(sensor));
                 new_sensor->sucessful_read = 0;
                 new_sensor->config = *configuration;
-                new_sensor->values = (int8_t*)malloc(configuration->value_size*configuration->num_registers);
+                new_sensor->values = (int8_t*)malloc(2 * sizeof(uint8_t));
                 new_sensor->timestamp = (time_stamp){0};
                 return new_sensor;
         }
@@ -24,7 +24,7 @@ sensor* configure_sensor(sensor_config *configuration)
                 sensor *new_sensor = (sensor *) malloc(sizeof(sensor));
                 new_sensor->sucessful_read = 0;
                 new_sensor->config = *configuration;
-                new_sensor->values = (int32_t*)malloc(configuration->value_size);
+                new_sensor->values = (int32_t*)malloc(sizeof(uint32_t));
                 new_sensor->timestamp = (time_stamp) {0};
                 return new_sensor;
         }
@@ -32,7 +32,7 @@ sensor* configure_sensor(sensor_config *configuration)
         return NULL;
 }
 
-int read_sensor(const void *drivers, sensor *sn)
+int read_sensor(const void *drivers, sensor *sn, const struct adc_dt_spec channels[])
 {
         if(sn->config.type == I2C)
         {
@@ -56,6 +56,10 @@ int read_sensor(const void *drivers, sensor *sn)
                 {
                         return -1;
                 }
+                if(channels == NULL)
+                {
+                        return -1;
+                }
                 
                 int err;
                 int32_t val_mv;
@@ -67,8 +71,8 @@ int read_sensor(const void *drivers, sensor *sn)
                         .buffer_size = sizeof(raw_val),
                 };
 
-                err = adc_channel_setup_dt(sn->config.channel);
-                (void)adc_sequence_init_dt(sn->config.channel, &sequence);
+                err = adc_channel_setup_dt(&channels[sn->config.Pin-2]);
+                (void)adc_sequence_init_dt(&channels[sn->config.Pin-2], &sequence);
 
 		if (err < 0) {
                         printk("Could not setup channel #%d (%d)\n", sn->config._id, err);
@@ -76,15 +80,15 @@ int read_sensor(const void *drivers, sensor *sn)
 		}
                 
 
-                err = adc_read_dt(sn->config.channel, &sequence);
+                err = adc_read_dt(&channels[sn->config.Pin-2], &sequence);
                 if (err < 0) {
                         printk("Could not read (%d)\n", err);
                 }
 
                 val_mv = (int32_t)(raw_val);
 
-                err = adc_raw_to_millivolts_dt(sn->config.channel, &val_mv);
-
+                err = adc_raw_to_millivolts_dt(&channels[sn->config.Pin-2], &val_mv);
+                
                 ((int32_t*)sn->values)[0] = val_mv;
 
                 sn->sucessful_read++;

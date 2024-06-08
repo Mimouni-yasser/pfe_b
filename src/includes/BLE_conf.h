@@ -116,6 +116,13 @@ static struct bt_gatt_attr svc_attrs[] = {
 bt_gatt_attr_write_func_t write_func(struct bt_conn *conn, const struct bt_gatt_attr *attr, const void *buf, uint16_t len, uint16_t offset, uint8_t flags)
 {
 	printk("\nrecieved\n");
+
+	//if buff is "done", set the flag to 1
+	if(strcmp((char *)buf, "done") == 0)
+	{
+		config_done = true;
+		return;
+	}
 	for(int i=0; i<len; i++)
 	{
 		printk("%c", ((char *)buf)[i]);
@@ -124,8 +131,8 @@ bt_gatt_attr_write_func_t write_func(struct bt_conn *conn, const struct bt_gatt_
 	
 	char *ptr = NULL;
 	uint8_t i = 0;
-	sensor_config array[] = 
-		{first_conf, second_conf, third_conf, forth_conf};
+	sensor_config *array[] = 
+		{&first_conf, &second_conf, &third_conf, &forth_conf};
 
 
 	ptr = strtok((char *) buf, "-" );
@@ -146,40 +153,36 @@ bt_gatt_attr_write_func_t write_func(struct bt_conn *conn, const struct bt_gatt_
 	{
 		ptr = strtok(NULL, "-");
 		if(j == 0){
-			array[i].type = strcmp(ptr, "I") == 0 ? I2C : strcmp(ptr, "S") == 0 ? SPI : strcmp(ptr, "G") == 0 ? GPIO : UART;
-			printk("type %d = %d\n", j, array[i].type);
+			array[i]->type = strcmp(ptr, "I") == 0 ? I2C : strcmp(ptr, "S") == 0 ? SPI : strcmp(ptr, "G") == 0 ? GPIO : UART;
+			printk("type %d = %d\n", j, array[i]->type);
 		}
 		if(j==1){
-			array[i]._id = strtol(ptr, NULL, 16);
-			printk("id %d = %d\n", j, array[i]._id);
+			array[i]->_id = strtol(ptr, NULL, 16);
+			printk("id %d = %d\n", j, array[i]->_id);
 		}
 		if(j==2){
-			array[i].adress = strtol(ptr, NULL, 16);
-			printk("address %d = %d\n", j, array[i].adress);
+			array[i]->adress = strtol(ptr, NULL, 16);
+			printk("address %d = %d\n", j, array[i]->adress);
 		}
 		if(j==3){
-			array[i].reg_addr[0] = strtol(ptr, NULL, 16);
-			printk("reg_addr 1 %d = %d\n", j, array[i].reg_addr[0]);
+			array[i]->reg_addr[0] = strtol(ptr, NULL, 16);
+			printk("reg_addr 1 %d = %d\n", j, array[i]->reg_addr[0]);
 		}
 		if(j==4){
-			array[i].reg_addr[1] = strtol(ptr, NULL, 16);
-			printk("reg_addr 2 %d = %d\n", j, array[i].reg_addr[1]);
+			array[i]->reg_addr[1] = strtol(ptr, NULL, 16);
+			printk("reg_addr 2 %d = %d\n", j, array[i]->reg_addr[1]);
 		}
 		if(j==5){
-			array[i].Pin = strtol(ptr, NULL, 16);
-			printk("Pin %d = %d\n", j, array[i].Pin);
+			array[i]->Pin = strtol(ptr, NULL, 16);
+			printk("Pin %d = %d\n", j, array[i]->Pin);
 		}
-
 	}
 
-	
+	printk("first:\n\t id: %d\n\t address: %d\n\t reg_addr: %d %d\n\t Pin: %d\n", first_conf._id, first_conf.adress, first_conf.reg_addr[0], first_conf.reg_addr[1], first_conf.Pin);
 
-	//bt_gatt_write_without_response(conn, attr->handle, resp, sizeof(resp), false);
+
+	return;
 	
-	// for(int i=0; i<len; i++)
-	// {
-	// 	printk("%s", ((char *)buf)[i]);
-	// }
 }
 
 struct bt_gatt_service sensor_svc;

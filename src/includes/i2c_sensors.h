@@ -47,6 +47,7 @@ typedef struct sensor_config
         struct adc_dt_spec *channel; //for a GPIO sensor, give the relevant ADC channel, for an SPI, UART or i2c sensor, give NULL
         sensor_type type;
         size_t value_size;
+        uint8_t flash_id;
 
 } sensor_config;
 
@@ -71,7 +72,7 @@ sensor* configure_sensor(sensor_config *configuration);
  * @param: sensor *sensor: pointer to the sensor struct 
  * @return: 0 if the sensor was read successfully, negative error code if the sensor could not be read
  *************************************************************/
-int read_sensor( const void *i2c_dev, sensor *sensor);
+int read_sensor( const void *i2c_dev, sensor *sensor, const struct adc_dt_spec channels[]);
 
 
 

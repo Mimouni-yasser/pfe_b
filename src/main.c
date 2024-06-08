@@ -31,6 +31,9 @@ sensor_config first_conf;
 sensor_config second_conf;
 sensor_config third_conf;
 sensor_config forth_conf;
+static struct nvs_fs fs;
+
+bool config_done = false;
 
 #include "includes/BLE_conf.h"
 
@@ -42,7 +45,7 @@ sensor_config forth_conf;
 
 
 /////////////////////////////////////////////////////////////INITS
-static struct nvs_fs fs;
+
 
 #define NVS_PARTITION		storage_partition
 #define NVS_PARTITION_DEVICE	FIXED_PARTITION_DEVICE(NVS_PARTITION)
@@ -144,75 +147,12 @@ static void state_init_entry(void *o) {
 
 	int err;
 
-    fs.flash_device = NVS_PARTITION_DEVICE;
-	if (!device_is_ready(fs.flash_device)) {
-		printk("Flash device %s is not ready\n", fs.flash_device->name);
-		return ;
-	}
-	fs.offset = NVS_PARTITION_OFFSET;
-	int rc = flash_get_page_info_by_offs(fs.flash_device, fs.offset, &info);
-	if (rc) {
-		printk("Unable to get page info\n");
-		return ;
-	}
-	fs.sector_size = info.size;
-	fs.sector_count = 3U;
-
-	rc = nvs_mount(&fs);
-	if (rc) {
-		printk("Flash Init failed\n");
-		return ;
-	}
-
-	sensor_config config_struct_gpio = {
-			.adress=0,
-			.type = GPIO,
-			.num_registers=-1,
-			.reg_addr={0},
-			._id = 5,
-			.channel = adc_channels,
-			.value_size = sizeof(int16_t),
-			.Pin=AIN1
-	};
-	third = configure_sensor(&config_struct_gpio);
 
 
-	sensor_config config_second_gpio = {
-			.adress=0,
-			.type = GPIO,
-			.num_registers=-1,
-			.reg_addr={0},
-			._id = 5,
-			.channel = &adc_channels[4],
-			.value_size = sizeof(int16_t),
-			.Pin=AIN1
-	};
-	second = configure_sensor(&config_second_gpio);
-
-	sensor_config config_forth_gpio = {
-			.adress=0,
-			.type = GPIO,
-			.num_registers=-1,
-			.reg_addr={0},
-			._id = 5,
-			.channel = &adc_channels[3],
-			.value_size = sizeof(int16_t),
-			.Pin=AIN1
-	};
-
-	forth = configure_sensor(&config_forth_gpio);
-
-	sensor_config config_struct_i2c = {
-			.adress=0x68,
-			.type = I2C,
-			.num_registers=2,
-			.reg_addr={0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-			._id = 0,
-			.channel = NULL,
-			.value_size = sizeof(uint8_t)
-	};
-	first = configure_sensor(&config_struct_i2c);
-
+	first = configure_sensor(&first_conf);
+	second = configure_sensor(&second_conf);
+	third = configure_sensor(&third_conf);
+	forth = configure_sensor(&forth_conf);
 		
     while(!device_is_ready(i2c_dev))
     {
@@ -249,25 +189,23 @@ static void state_read_sensors_run(void *o) {
     int err;
 	// Read sensor data
     // Transition to the next state
-	err = read_sensor(i2c_dev, third);
+	err = read_sensor(i2c_dev, third, adc_channels);
 	if(err){
 		printk("Failed to read sensor data\n");
-		smf_set_state(SMF_CTX(o), &app_states[STATE_SLEEP]);
-		return;
 	}
 	printk("value from GPIO sensor: %d\n", *( (int32_t *)third->values));
 	write_data_fs(&fs, third);
 	k_sleep(K_SECONDS(1));
 
-	err = read_sensor(i2c_dev, first);
+	err = read_sensor(i2c_dev, first, adc_channels);
 	write_data_fs(&fs, first);
 	k_sleep(K_SECONDS(1));
 
-	err = read_sensor(i2c_dev, second);
+	err = read_sensor(i2c_dev, second, adc_channels);
 	write_data_fs(&fs, second);
 	k_sleep(K_SECONDS(1));
 
-	err = read_sensor(i2c_dev, forth);
+	err = read_sensor(i2c_dev, forth, adc_channels);
 	write_data_fs(&fs, forth);
 	k_sleep(K_SECONDS(1));
 
@@ -357,7 +295,34 @@ int main(void) {
 						(GPIO_PIN_CNF_DRIVE_S0S1 << GPIO_PIN_CNF_DRIVE_Pos) |
 						(GPIO_PIN_CNF_SENSE_Disabled << GPIO_PIN_CNF_SENSE_Pos);
 
-		k_sleep(K_SECONDS(1));
+	first_conf.flash_id = 1;
+	second_conf.flash_id = 2;
+	third_conf.flash_id = 3;
+	forth_conf.flash_id = 4;
+
+	fs.flash_device = NVS_PARTITION_DEVICE;
+	if (!device_is_ready(fs.flash_device)) {
+		printk("Flash device %s is not ready\n", fs.flash_device->name);
+		return ;
+	}
+	fs.offset = NVS_PARTITION_OFFSET;
+	int rc = flash_get_page_info_by_offs(fs.flash_device, fs.offset, &info);
+	if (rc) {
+		printk("Unable to get page info\n");
+		return ;
+	}
+	fs.sector_size = info.size;
+	fs.sector_count = 500 * 1024 / fs.sector_size;
+
+	rc = nvs_mount(&fs);
+	if (rc) {
+		printk("Flash Init failed\n");
+		return ;
+	}
+
+	k_sleep(K_SECONDS(1));
+
+
 	if(NRF_P1->IN & (1 << 4))
 	{
 		int err;
@@ -397,9 +362,40 @@ int main(void) {
 		}
 		k_sleep(K_SECONDS(1));
 
-		printk("configuration ongoing");
+		printk("configuration ongoing\n");
+
+		while(!config_done)
+		{
+			k_sleep(K_MSEC(300));
+		}
+		printk("configuration done\n");
+		printk("writing config to fs\n");
+		sensor_config *array[] = 
+			{&first_conf, &second_conf, &third_conf, &forth_conf};
+		printk("first:\n\t id: %d\n\t address: %d\n\t reg_addr: %d %d\n\t Pin: %d\n", first_conf._id, first_conf.adress, first_conf.reg_addr[0], first_conf.reg_addr[1], first_conf.Pin);
+		for (size_t k = 0; k < 4; k++)
+		{
+			if(nvs_write(&fs, array[k]->flash_id, array[k], sizeof(sensor_config))<0)
+				printk("failed to write config to flash\n");
+		}
 
 		return 0;
+	}
+
+
+	//read config from flash:
+	sensor_config *array[] = 
+		{&first_conf, &second_conf, &third_conf, &forth_conf};
+
+	for(int i = 0; i<4; i++){
+		if(nvs_read(&fs, array[i]->flash_id, array[i], sizeof(sensor_config))<0)
+		{
+			printk("not configured, pull pin 1.04 high to enter config mode");
+			return -20;
+		}
+		else{
+			printk("config for sensor %d:\n\t addr: %d\n\t type: %d\n\t id: %d\n", i, array[i]->adress, array[i]->type, array[i]->_id);
+		}
 	}
 
     //Set initial state
@@ -410,10 +406,20 @@ int main(void) {
         // State machine terminates if a non-zero value is returned
         ret = smf_run_state(SMF_CTX(&app_obj));
         if (ret) {
-            // Handle return code and terminate state machine if needed
+            free(first->values);
+			free(second->values);
+			free(third->values);
+			free(forth->values);
+
+			free(first);
+			free(second);
+			free(third);
+			free(forth);
+			nvs_clear(&fs);
             break;
         }
     }
 
     return 0;
 }
+
